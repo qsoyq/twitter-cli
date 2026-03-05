@@ -1,20 +1,35 @@
-# Twitter CLI
+# twitter-cli
 
-Twitter/X 命令行工具 — 读取 Timeline、书签和用户信息。
+[![CI](https://github.com/jackwener/twitter-cli/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jackwener/twitter-cli/actions/workflows/ci.yml)
+[![PyPI version](https://img.shields.io/pypi/v/twitter-cli.svg)](https://pypi.org/project/twitter-cli/)
+[![Python versions](https://img.shields.io/pypi/pyversions/twitter-cli.svg)](https://pypi.org/project/twitter-cli/)
 
-**零 API Key** — 使用浏览器 Cookie 认证，免费访问 Twitter。
+A terminal-first CLI for Twitter/X: read timelines, bookmarks, and user profiles without API keys.
 
-## 安装
+[English](#english) | [中文](#中文)
+
+## English
+
+### Features
+
+- Timeline: fetch `for-you` and `following` feeds
+- Bookmarks: list saved tweets from your account
+- User lookup: fetch user profile and recent tweets
+- JSON output: export feed/bookmarks/user tweets for scripting
+- Optional scoring filter: rank tweets by engagement weights
+- Cookie auth: use browser cookies or environment variables
+
+### Installation
 
 ```bash
-# 推荐：uv tool（更快，隔离环境）
+# Recommended: uv tool (fast, isolated)
 uv tool install twitter-cli
 
-# 其次：pipx
+# Alternative: pipx
 pipx install twitter-cli
 ```
 
-从源码安装：
+Install from source:
 
 ```bash
 git clone git@github.com:jackwener/twitter-cli.git
@@ -22,73 +37,49 @@ cd twitter-cli
 uv sync
 ```
 
-## Quick Start
+### Quick Start
 
 ```bash
-# 运行（自动从 Chrome 提取 Cookie）
-twitter feed
-```
-
-首次运行确保 Chrome 已登录 x.com。
-
-## 使用方式
-
-### 读取
-
-```bash
-# 抓取首页 timeline（For You 算法推荐）
+# Fetch home timeline (For You)
 twitter feed
 
-# 抓取关注的人的 timeline（Following 时间线）
+# Fetch Following timeline
 twitter feed -t following
 
-# 自定义抓取条数
-twitter feed --max 50
-
-# 开启筛选（按 score 排序过滤）
+# Enable ranking filter explicitly
 twitter feed --filter
-
-# JSON 输出
-twitter feed --json > tweets.json
-
-# 从已有数据加载
-twitter feed --input tweets.json
-
-
-# 抓取收藏
-twitter favorite
-twitter favorite --max 30 --json
 ```
 
-### 用户
+### Usage
 
 ```bash
-# 查看用户资料
-twitter user elonmusk
+# Feed
+twitter feed --max 50
+twitter feed --json > tweets.json
+twitter feed --input tweets.json
 
-# 列出用户推文
+# Bookmarks
+twitter favorite
+twitter favorite --max 30 --json
+
+# User
+
+twitter user elonmusk
 twitter user-posts elonmusk --max 20
 ```
 
-## Pipeline
+### Authentication
 
-```
-抓取 (GraphQL API)  →  筛选 (Engagement Score)
-      50 条               top 20
-```
+twitter-cli uses this auth priority:
 
-### 筛选算法
+1. Environment variables: `TWITTER_AUTH_TOKEN` + `TWITTER_CT0`
+2. Browser cookies: auto-extract from Chrome/Edge/Firefox/Brave
 
-加权评分公式，收藏权重最高（代表"值得回看"）：
+After loading cookies, the CLI performs lightweight verification. Commands that require account access fail fast on clear auth errors (`401/403`).
 
-```
-score = 1.0 × likes + 3.0 × retweets + 2.0 × replies
-      + 5.0 × bookmarks + 0.5 × log10(views)
-```
+### Configuration
 
-## 配置
-
-编辑 `config.yaml`：
+Create `config.yaml` in your working directory:
 
 ```yaml
 fetch:
@@ -97,6 +88,9 @@ fetch:
 filter:
   mode: "topN"          # "topN" | "score" | "all"
   topN: 20
+  minScore: 50
+  lang: []
+  excludeRetweets: false
   weights:
     likes: 1.0
     retweets: 3.0
@@ -105,49 +99,108 @@ filter:
     views_log: 0.5
 ```
 
-### Cookie 配置
+Filter behavior:
 
-**方式 1：自动提取**（推荐） — 确保浏览器已登录 x.com，程序自动通过 `browser-cookie3` 按 Chrome → Edge → Firefox → Brave 顺序尝试读取。
+- Default behavior: no ranking filter unless `--filter` is passed
+- With `--filter`: tweets are scored/sorted using `config.filter`
 
-**方式 2：环境变量** — 设置：
+### Troubleshooting
 
-```bash
-export TWITTER_AUTH_TOKEN=your_auth_token
-export TWITTER_CT0=your_ct0
-```
+- `No Twitter cookies found`
+  - Ensure you are logged in to `x.com` in a supported browser.
+  - Or set `TWITTER_AUTH_TOKEN` and `TWITTER_CT0` manually.
 
-可通过 [Cookie-Editor](https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm) 浏览器插件导出。
+- `Cookie expired or invalid (HTTP 401/403)`
+  - Re-login to `x.com` and retry.
 
-## 项目结构
+- `Twitter API error 404`
+  - This can happen when upstream GraphQL query IDs rotate.
+  - Retry the command; the client attempts a live queryId fallback.
 
-```
-twitter_cli/
-├── __init__.py     # 版本信息
-├── cli.py          # CLI 入口 (click)
-├── client.py       # Twitter GraphQL API Client (GET)
-├── auth.py         # Cookie 提取 (env / browser-cookie3)
-├── filter.py       # Engagement scoring + 筛选
-├── formatter.py    # Rich 终端输出 + JSON
-├── config.py       # YAML 配置加载
-├── serialization.py # Tweet JSON <-> dataclass
-└── models.py       # 数据模型 (dataclass)
-```
+- `Invalid tweet JSON file`
+  - Regenerate input using `twitter feed --json > tweets.json`.
 
-## Development
+### Development
 
 ```bash
-# Install development tools
+# Install dev dependencies
 uv sync --extra dev
 
-# Run tests
-uv run pytest
-
-# Lint
+# Lint + tests
 uv run ruff check .
+uv run pytest -q
 ```
 
-## 注意事项
+### Project Structure
 
-- 使用 Cookie 登录存在被平台检测的风险，建议使用**专用小号**
-- Cookie 只存在本地，不上传不外传
-- GraphQL `queryId` 会从 Twitter 前端 JS 自动检测，无需手动维护
+```text
+twitter_cli/
+├── __init__.py
+├── cli.py
+├── client.py
+├── auth.py
+├── config.py
+├── filter.py
+├── formatter.py
+├── serialization.py
+└── models.py
+```
+
+## 中文
+
+### 功能概览
+
+- 时间线读取：支持 `for-you` 和 `following`
+- 收藏读取：查看账号书签推文
+- 用户查询：查看用户资料和用户推文
+- JSON 输出：便于脚本处理
+- 可选筛选：按 engagement score 排序
+- Cookie 认证：支持环境变量和浏览器自动提取
+
+### 安装
+
+```bash
+# 推荐：uv tool
+uv tool install twitter-cli
+
+# 其次：pipx
+pipx install twitter-cli
+```
+
+### 常用命令
+
+```bash
+# 首页推荐流
+twitter feed
+
+# Following 流
+twitter feed -t following
+
+# 开启筛选（默认不开启）
+twitter feed --filter
+
+# 收藏
+twitter favorite
+
+# 用户
+twitter user elonmusk
+twitter user-posts elonmusk --max 20
+```
+
+### 认证说明
+
+认证优先级：
+
+1. `TWITTER_AUTH_TOKEN` + `TWITTER_CT0`
+2. 浏览器 Cookie 自动提取（Chrome/Edge/Firefox/Brave）
+
+### 常见问题
+
+- 报错 `No Twitter cookies found`：请先登录 `x.com` 或手动设置环境变量。
+- 报错 `Cookie expired or invalid`：Cookie 过期，重新登录后重试。
+- 报错 `Twitter API error 404`：通常是 queryId 轮换，重试即可。
+
+### 注意事项
+
+- Cookie 登录有平台风控风险，建议使用专用账号。
+- Cookie 仅在本地使用，不会被本工具上传。
