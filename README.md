@@ -32,7 +32,7 @@ A terminal-first CLI for Twitter/X: read timelines, bookmarks, and user profiles
 - Delete: remove your own tweets
 - Like / Unlike: manage tweet likes
 - Retweet / Unretweet: manage retweets
-- Bookmark: add/remove bookmarks
+- Bookmark: favorite/unfavorite
 
 **Auth:**
 - Cookie auth: use browser cookies or environment variables
@@ -77,8 +77,8 @@ twitter feed --json > tweets.json
 twitter feed --input tweets.json
 
 # Bookmarks
-twitter favorite
-twitter favorite --max 30 --json
+twitter favorites
+twitter favorites --max 30 --json
 
 # Search
 twitter search "Claude Code"
@@ -107,8 +107,8 @@ twitter like 1234567890
 twitter unlike 1234567890
 twitter rt 1234567890
 twitter unrt 1234567890
-twitter bookmark-add 1234567890
-twitter bookmark-rm 1234567890
+twitter favorite 1234567890
+twitter unfavorite 1234567890
 ```
 
 ### Authentication
@@ -256,7 +256,7 @@ After installation, OpenClaw can call `twitter-cli` commands directly.
 - 删除：删除自己的推文
 - 点赞 / 取消点赞
 - 转推 / 取消转推
-- 书签管理：添加/移除书签
+- 收藏 / 取消收藏：favorite/unfavorite
 
 - 可选筛选：按 engagement score 排序
 - Cookie 认证：支持环境变量和浏览器自动提取
@@ -277,7 +277,7 @@ twitter feed -t following
 twitter feed --filter
 
 # 收藏
-twitter favorite
+twitter favorites
 
 # 搜索
 twitter search "Claude Code"
@@ -304,8 +304,8 @@ twitter like 1234567890
 twitter unlike 1234567890
 twitter rt 1234567890
 twitter unrt 1234567890
-twitter bookmark-add 1234567890
-twitter bookmark-rm 1234567890
+twitter favorite 1234567890
+twitter unfavorite 1234567890
 ```
 
 ### 认证说明

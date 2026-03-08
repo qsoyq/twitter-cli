@@ -3,7 +3,7 @@
 Read commands:
     twitter feed                      # home timeline (For You)
     twitter feed -t following         # following feed
-    twitter favorite                  # bookmarks
+    twitter favorites                 # bookmarks
     twitter search "query"            # search tweets
     twitter user elonmusk             # user profile
     twitter user-posts elonmusk       # user tweets
@@ -17,8 +17,8 @@ Write commands:
     twitter post "text"               # post a tweet
     twitter delete <id>               # delete a tweet
     twitter like/unlike <id>          # like/unlike
+    twitter favorite/unfavorite <id>  # bookmark/unbookmark
     twitter rt/unrt <id>              # retweet/unretweet
-    twitter bookmark-add/rm <id>      # bookmark management
 """
 
 from __future__ import annotations
@@ -205,7 +205,7 @@ def feed(feed_type, max_count, as_json, input_file, output_file, do_filter):
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
 @click.option("--output", "-o", "output_file", type=str, default=None, help="Save tweets to JSON file.")
 @click.option("--filter", "do_filter", is_flag=True, help="Enable score-based filtering.")
-def favorite(max_count, as_json, output_file, do_filter):
+def favorites(max_count, as_json, output_file, do_filter):
     # type: (Optional[int], bool, Optional[str], bool) -> None
     """Fetch bookmarked (favorite) tweets."""
     config = load_config()
@@ -488,19 +488,19 @@ def unrt(tweet_id):
     _write_action("🔄", "Undoing retweet", "unretweet", tweet_id)
 
 
-@cli.command(name="bookmark-add")
+@cli.command()
 @click.argument("tweet_id")
-def bookmark_add(tweet_id):
+def favorite(tweet_id):
     # type: (str,) -> None
-    """Bookmark a tweet. TWEET_ID is the numeric tweet ID."""
+    """Bookmark (favorite) a tweet. TWEET_ID is the numeric tweet ID."""
     _write_action("🔖", "Bookmarking tweet", "bookmark_tweet", tweet_id)
 
 
-@cli.command(name="bookmark-rm")
+@cli.command()
 @click.argument("tweet_id")
-def bookmark_rm(tweet_id):
+def unfavorite(tweet_id):
     # type: (str,) -> None
-    """Remove a tweet from bookmarks. TWEET_ID is the numeric tweet ID."""
+    """Remove a tweet from bookmarks (unfavorite). TWEET_ID is the numeric tweet ID."""
     _write_action("🔖", "Removing bookmark", "unbookmark_tweet", tweet_id)
 
 
