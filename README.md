@@ -72,6 +72,10 @@ twitter favorite --max 30 --json
 twitter likes
 twitter likes --max 20 --json
 
+# Cookie helpers
+twitter cookie
+twitter cookie-verify --cookies 'auth_token=...; ct0=...'
+
 # User
 twitter user elonmusk
 twitter user-posts elonmusk --max 20
@@ -81,10 +85,24 @@ twitter user-posts elonmusk --max 20
 
 twitter-cli uses this auth priority:
 
-1. Environment variables: `TWITTER_AUTH_TOKEN` + `TWITTER_CT0`
-2. Browser cookies: auto-extract from Chrome/Edge/Firefox/Brave
+1. Raw cookie env: `TWITTER_COOKIE` (format: `auth_token=...; ct0=...`)
+2. Environment variables: `TWITTER_AUTH_TOKEN` + `TWITTER_CT0`
+3. Browser cookies: auto-extract from Chrome/Edge/Firefox/Brave
 
 After loading cookies, the CLI performs lightweight verification. Commands that require account access fail fast on clear auth errors (`401/403`).
+
+You can also inspect or verify cookies explicitly:
+
+```bash
+# Print the currently resolved cookie
+twitter cookie
+
+# Verify a cookie passed from CLI
+twitter cookie-verify --cookies 'auth_token=...; ct0=...'
+
+# Or verify from environment variables
+TWITTER_COOKIE='auth_token=...; ct0=...' twitter cookie-verify
+```
 
 ### Configuration
 
@@ -132,18 +150,18 @@ Mode behavior:
 ### Troubleshooting
 
 - `No Twitter cookies found`
-  - Ensure you are logged in to `x.com` in a supported browser.
-  - Or set `TWITTER_AUTH_TOKEN` and `TWITTER_CT0` manually.
+    - Ensure you are logged in to `x.com` in a supported browser.
+    - Or set `TWITTER_COOKIE`, or `TWITTER_AUTH_TOKEN` and `TWITTER_CT0` manually.
 
 - `Cookie expired or invalid (HTTP 401/403)`
-  - Re-login to `x.com` and retry.
+    - Re-login to `x.com` and retry.
 
 - `Twitter API error 404`
-  - This can happen when upstream GraphQL query IDs rotate.
-  - Retry the command; the client attempts a live queryId fallback.
+    - This can happen when upstream GraphQL query IDs rotate.
+    - Retry the command; the client attempts a live queryId fallback.
 
 - `Invalid tweet JSON file`
-  - Regenerate input using `twitter feed --json > tweets.json`.
+    - Regenerate input using `twitter feed --json > tweets.json`.
 
 ### Development
 
@@ -237,6 +255,10 @@ twitter favorite
 # 点赞列表
 twitter likes
 
+# Cookie 工具
+twitter cookie
+twitter cookie-verify --cookies 'auth_token=...; ct0=...'
+
 # 用户
 twitter user elonmusk
 twitter user-posts elonmusk --max 20
@@ -246,8 +268,22 @@ twitter user-posts elonmusk --max 20
 
 认证优先级：
 
-1. `TWITTER_AUTH_TOKEN` + `TWITTER_CT0`
-2. 浏览器 Cookie 自动提取（Chrome/Edge/Firefox/Brave）
+1. `TWITTER_COOKIE`（格式：`auth_token=...; ct0=...`）
+2. `TWITTER_AUTH_TOKEN` + `TWITTER_CT0`
+3. 浏览器 Cookie 自动提取（Chrome/Edge/Firefox/Brave）
+
+也可以显式查看或验证 Cookie：
+
+```bash
+# 输出当前解析到的 Cookie
+twitter cookie
+
+# 直接从命令行校验 Cookie
+twitter cookie-verify --cookies 'auth_token=...; ct0=...'
+
+# 或从环境变量校验
+TWITTER_COOKIE='auth_token=...; ct0=...' twitter cookie-verify
+```
 
 ### 筛选算法
 
@@ -271,7 +307,7 @@ score = likes_w * likes
 
 ### 常见问题
 
-- 报错 `No Twitter cookies found`：请先登录 `x.com` 或手动设置环境变量。
+- 报错 `No Twitter cookies found`：请先登录 `x.com`，或设置 `TWITTER_COOKIE` / `TWITTER_AUTH_TOKEN` / `TWITTER_CT0`。
 - 报错 `Cookie expired or invalid`：Cookie 过期，重新登录后重试。
 - 报错 `Twitter API error 404`：通常是 queryId 轮换，重试即可。
 

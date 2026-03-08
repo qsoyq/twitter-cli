@@ -261,28 +261,16 @@ class TwitterClient:
         result = _deep_get(data, "data", "user", "result")
         if not result:
             raise RuntimeError("User @%s not found" % screen_name)
+        return _parse_user_profile_result(result, default_screen_name=screen_name)
 
-        legacy = result.get("legacy", {})
-        core = result.get("core", {})
-        return UserProfile(
-            id=result.get("rest_id", ""),
-            name=core.get("name") or legacy.get("name", ""),
-            screen_name=core.get("screen_name") or legacy.get("screen_name", screen_name),
-            bio=legacy.get("description", ""),
-            location=legacy.get("location", ""),
-            url=(
-                legacy.get("entities", {}).get("url", {}).get("urls", [{}])[0].get("expanded_url", "")
-                if legacy.get("entities", {}).get("url")
-                else ""
-            ),
-            followers_count=_to_int(legacy.get("followers_count"), 0),
-            following_count=_to_int(legacy.get("friends_count"), 0),
-            tweets_count=_to_int(legacy.get("statuses_count"), 0),
-            likes_count=_to_int(legacy.get("favourites_count"), 0),
-            verified=bool(result.get("is_blue_verified") or legacy.get("verified", False)),
-            profile_image_url=legacy.get("profile_image_url_https", ""),
-            created_at=legacy.get("created_at", ""),
-        )
+    def fetch_current_user_profile(self):
+        # type: () -> UserProfile
+        """Fetch the authenticated user's profile via the Viewer endpoint."""
+        data = self._graphql_get("Viewer", {}, _viewer_features())
+        result = _deep_get(data, "data", "viewer", "user_results", "result")
+        if not result:
+            raise RuntimeError("Could not resolve current user profile")
+        return _parse_user_profile_result(result)
 
     def fetch_user_tweets(self, user_id, count=20):
         # type: (str, int) -> List[Tweet]
@@ -302,17 +290,10 @@ class TwitterClient:
     def fetch_current_user_id(self):
         # type: () -> str
         """Fetch the authenticated user's ID via the Viewer endpoint."""
-        features = {
-            "responsive_web_graphql_exclude_directive_enabled": True,
-            "verified_phone_label_enabled": False,
-            "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
-            "responsive_web_graphql_timeline_navigation_enabled": True,
-        }
-        data = self._graphql_get("Viewer", {}, features)
-        user_id = _deep_get(data, "data", "viewer", "user_results", "result", "rest_id")
-        if not user_id:
+        profile = self.fetch_current_user_profile()
+        if not profile.id:
             raise RuntimeError("Could not resolve current user ID")
-        return user_id
+        return profile.id
 
     def fetch_likes(self, user_id, count=20):
         # type: (str, int) -> List[Tweet]
@@ -624,6 +605,42 @@ def _extract_author(user_data, user_legacy):
             or user_legacy.get("profile_image_url_https", "")
         ),
         verified=bool(user_data.get("is_blue_verified") or user_legacy.get("verified", False)),
+    )
+
+
+def _viewer_features():
+    # type: () -> Dict[str, Any]
+    """Feature flags for the Viewer operation."""
+    return {
+        "responsive_web_graphql_exclude_directive_enabled": True,
+        "verified_phone_label_enabled": False,
+        "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
+        "responsive_web_graphql_timeline_navigation_enabled": True,
+    }
+
+
+def _parse_user_profile_result(result, default_screen_name=""):
+    # type: (Dict[str, Any], str) -> UserProfile
+    """Convert a Twitter user result object into a UserProfile."""
+    legacy = result.get("legacy", {})
+    core = result.get("core", {})
+    url_entity = legacy.get("entities", {}).get("url", {})
+    url_items = url_entity.get("urls", [])
+
+    return UserProfile(
+        id=result.get("rest_id", ""),
+        name=core.get("name") or legacy.get("name", ""),
+        screen_name=core.get("screen_name") or legacy.get("screen_name", default_screen_name),
+        bio=legacy.get("description", ""),
+        location=legacy.get("location", ""),
+        url=url_items[0].get("expanded_url", "") if url_items else "",
+        followers_count=_to_int(legacy.get("followers_count"), 0),
+        following_count=_to_int(legacy.get("friends_count"), 0),
+        tweets_count=_to_int(legacy.get("statuses_count"), 0),
+        likes_count=_to_int(legacy.get("favourites_count"), 0),
+        verified=bool(result.get("is_blue_verified") or legacy.get("verified", False)),
+        profile_image_url=legacy.get("profile_image_url_https", ""),
+        created_at=legacy.get("created_at", ""),
     )
 
 

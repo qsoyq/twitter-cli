@@ -1,8 +1,9 @@
 """Cookie authentication for Twitter/X.
 
 Supports:
-1. Environment variables: TWITTER_AUTH_TOKEN + TWITTER_CT0
-2. Auto-extract from browser via browser-cookie3 (subprocess)
+1. Raw cookie env: TWITTER_COOKIE
+2. Environment variables: TWITTER_AUTH_TOKEN + TWITTER_CT0
+3. Auto-extract from browser via browser-cookie3 (subprocess)
 """
 
 from __future__ import annotations
@@ -24,8 +25,39 @@ logger = logging.getLogger(__name__)
 
 
 
+def parse_cookie_string(cookie_string):
+    # type: (str) -> Optional[Dict[str, str]]
+    """Parse a raw Cookie header and extract auth_token + ct0."""
+    values = {}
+    for chunk in cookie_string.split(";"):
+        piece = chunk.strip()
+        if not piece or "=" not in piece:
+            continue
+        name, value = piece.split("=", 1)
+        name = name.strip()
+        value = value.strip()
+        if name in ("auth_token", "ct0") and value:
+            values[name] = value
+
+    if "auth_token" in values and "ct0" in values:
+        return {"auth_token": values["auth_token"], "ct0": values["ct0"]}
+    return None
+
+
+def format_cookie_string(auth_token, ct0):
+    # type: (str, str) -> str
+    """Format auth_token + ct0 as a Cookie header fragment."""
+    return "auth_token=%s; ct0=%s" % (auth_token, ct0)
+
+
 def load_from_env() -> Optional[Dict[str, str]]:
     """Load cookies from environment variables."""
+    raw_cookie = os.environ.get("TWITTER_COOKIE", "")
+    if raw_cookie:
+        parsed = parse_cookie_string(raw_cookie)
+        if parsed:
+            return parsed
+
     auth_token = os.environ.get("TWITTER_AUTH_TOKEN", "")
     ct0 = os.environ.get("TWITTER_CT0", "")
     if auth_token and ct0:
@@ -80,6 +112,50 @@ def verify_cookies(auth_token, ct0):
     # All endpoints failed with non-auth errors — proceed without verification
     logger.info("Cookie verification skipped (no working endpoint), will verify on first API call")
     return {}
+
+
+def resolve_input_cookies(cookie_string=None, auth_token=None, ct0=None):
+    # type: (Optional[str], Optional[str], Optional[str]) -> Dict[str, str]
+    """Resolve cookies from CLI input or environment variables."""
+    cookie_string = (cookie_string or "").strip()
+    auth_token = (auth_token or "").strip()
+    ct0 = (ct0 or "").strip()
+
+    if cookie_string:
+        parsed = parse_cookie_string(cookie_string)
+        if not parsed:
+            raise RuntimeError("Invalid cookie string. Expected auth_token=...; ct0=...")
+        return parsed
+
+    if auth_token and ct0:
+        return {"auth_token": auth_token, "ct0": ct0}
+
+    cookies = load_from_env()
+    if cookies:
+        return cookies
+
+    raise RuntimeError(
+        "No cookie input found.\n"
+        "Option 1: Pass --cookies 'auth_token=...; ct0=...'\n"
+        "Option 2: Set TWITTER_COOKIE\n"
+        "Option 3: Set TWITTER_AUTH_TOKEN and TWITTER_CT0"
+    )
+
+
+def verify_cookies_with_profile(auth_token, ct0):
+    # type: (str, str) -> Optional["UserProfile"]
+    """Verify cookies by reading the authenticated user's profile when possible."""
+    from .client import TwitterClient
+
+    client = TwitterClient(auth_token, ct0)
+    try:
+        return client.fetch_current_user_profile()
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        logger.debug("Profile verification failed, falling back to lightweight verification: %s", exc)
+        verify_cookies(auth_token, ct0)
+        return None
 
 
 def extract_from_browser() -> Optional[Dict[str, str]]:

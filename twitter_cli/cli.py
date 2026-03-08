@@ -12,6 +12,8 @@ Usage:
     twitter feed --output out.json    # save filtered tweets
     twitter user elonmusk             # view user profile
     twitter user-posts elonmusk       # list user tweets
+    twitter cookie                    # print current cookie
+    twitter cookie-verify             # verify a cookie from CLI/env
 """
 
 from __future__ import annotations
@@ -26,7 +28,12 @@ import click
 from rich.console import Console
 
 from . import __version__
-from .auth import get_cookies
+from .auth import (
+    format_cookie_string,
+    get_cookies,
+    resolve_input_cookies,
+    verify_cookies_with_profile,
+)
 from .client import TwitterClient
 from .config import load_config
 from .filter import filter_tweets
@@ -191,7 +198,9 @@ def feed(feed_type, max_count, as_json, input_file, output_file, do_filter):
                 if not as_json:
                     console.print("   Loaded %d tweets" % len(tweets))
             else:
-                fetch_count = _resolve_fetch_count(max_count, config.get("fetch", {}).get("count", 50))
+                fetch_count = _resolve_fetch_count(
+                    max_count, config.get("fetch", {}).get("count", 50)
+                )
                 client = _get_client(silent=as_json)
                 label = "following feed" if feed_type == "following" else "home timeline"
                 if not as_json:
@@ -328,6 +337,50 @@ def user_posts(screen_name, max_count, as_json):
 
     print_tweet_table(tweets, console, title="📝 @%s — %d tweets" % (screen_name, len(tweets)))
     console.print()
+
+
+@cli.command()
+def cookie():
+    # type: () -> None
+    """Print the currently resolved cookie as auth_token=...; ct0=..."""
+    try:
+        cookies = get_cookies()
+    except RuntimeError as exc:
+        console.print("[red]❌ %s[/red]" % exc)
+        sys.exit(1)
+
+    click.echo(format_cookie_string(cookies["auth_token"], cookies["ct0"]))
+
+
+@cli.command("cookie-verify")
+@click.option(
+    "--cookies",
+    "cookies_value",
+    type=str,
+    default=None,
+    envvar="TWITTER_CLI_COOKIES",
+    help="Raw cookie string like 'auth_token=...; ct0=...'. Also reads TWITTER_CLI_COOKIES.",
+)
+def cookie_verify(cookies_value):
+    # type: (Optional[str],) -> None
+    """Verify a cookie from CLI options or environment variables."""
+    try:
+        cookies = resolve_input_cookies(cookies_value)
+        console.print("🔍 Verifying cookie via current user profile...\n")
+        profile = verify_cookies_with_profile(cookies["auth_token"], cookies["ct0"])
+    except RuntimeError as exc:
+        console.print("[red]❌ %s[/red]" % exc)
+        sys.exit(1)
+
+    console.print("[green]✅ Cookie is valid[/green]")
+    console.print()
+    if profile:
+        print_user_profile(profile, console)
+        return
+
+    console.print(
+        "ℹ️ Cookie passed lightweight verification, but current user profile was not available."
+    )
 
 
 if __name__ == "__main__":
