@@ -74,7 +74,7 @@ def test_cli_cookie_verify_command_accepts_cookies_option(monkeypatch) -> None:
     assert "alice" in result.output
 
 
-def test_cli_cookie_verify_command_reads_env_vars(monkeypatch) -> None:
+def test_cli_cookie_verify_command_reads_cookies_env_var(monkeypatch) -> None:
     captured = {}
 
     def fake_verify(auth_token: str, ct0: str) -> UserProfile:
@@ -87,7 +87,7 @@ def test_cli_cookie_verify_command_reads_env_vars(monkeypatch) -> None:
     result = runner.invoke(
         cli,
         ["cookie-verify"],
-        env={"TWITTER_AUTH_TOKEN": "env-auth", "TWITTER_CT0": "env-ct0"},
+        env={"TWITTER_CLI_COOKIES": "auth_token=env-auth; ct0=env-ct0"},
     )
     assert result.exit_code == 0
     assert captured == {"auth_token": "env-auth", "ct0": "env-ct0"}
