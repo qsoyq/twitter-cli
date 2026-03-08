@@ -32,7 +32,7 @@ twitter feed
 twitter feed -t following
 
 # Bookmarks
-twitter favorite
+twitter favorites
 
 # User profile and posts
 twitter user <screen_name>
@@ -55,7 +55,7 @@ Filtering is opt-in (disabled by default). Enable with `--filter`.
 
 ```bash
 twitter feed --filter
-twitter favorite --filter
+twitter favorites --filter
 ```
 
 The scoring formula:

@@ -46,7 +46,7 @@ from .formatter import (
 from .serialization import tweets_from_json, tweets_to_json, users_to_json
 
 
-console = Console()
+console = Console(stderr=True)
 FEED_TYPES = ["for-you", "following"]
 
 
@@ -296,7 +296,11 @@ def likes(screen_name, max_count, as_json, do_filter):
     config = load_config()
     client = _get_client(config)
     console.print("👤 Fetching @%s's profile..." % screen_name)
-    profile = client.fetch_user(screen_name)
+    try:
+        profile = client.fetch_user(screen_name)
+    except RuntimeError as exc:
+        console.print("[red]❌ %s[/red]" % exc)
+        sys.exit(1)
     _fetch_and_display(
         lambda count: client.fetch_user_likes(profile.id, count),
         "@%s likes" % screen_name, "❤️", max_count, as_json, None, do_filter, config,
