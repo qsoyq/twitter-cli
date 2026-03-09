@@ -194,7 +194,7 @@ Mode behavior:
 
 - **Use a proxy** — set `TWITTER_PROXY` to avoid direct IP exposure
 - **Keep request volumes low** — use `--max 20` instead of `--max 500`
-- **Don't run too frequently** — each startup initializes a browser session
+- **Don't run too frequently** — each startup fetches x.com to initialize anti-detection headers
 - **Use browser cookie extraction** — provides full cookie fingerprint
 - **Avoid datacenter IPs** — residential proxies are much safer
 
@@ -393,7 +393,7 @@ score = likes_w * likes
 
 - **使用代理** — 设置 `TWITTER_PROXY`，避免裸 IP 直连
 - **控制请求量** — 用 `--max 20` 而不是 `--max 500`
-- **避免频繁启动** — 每次启动都会初始化浏览器会话
+- **避免频繁启动** — 每次启动都会访问 x.com 初始化反检测请求头
 - **使用浏览器 Cookie 提取** — 提供完整 Cookie 指纹
 - **避免数据中心 IP** — 住宅代理更安全
 - Cookie 仅在本地使用，不会被本工具上传

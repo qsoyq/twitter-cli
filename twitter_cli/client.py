@@ -11,7 +11,6 @@ import time
 import urllib.parse
 
 import bs4
-import requests as _requests_lib
 from curl_cffi import requests as _cffi_requests
 from x_client_transaction import ClientTransaction
 from x_client_transaction.utils import generate_headers as _gen_ct_headers, get_ondemand_file_url
