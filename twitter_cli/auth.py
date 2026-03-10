@@ -130,6 +130,7 @@ def _extract_in_process():
         return None
 
     browsers = [
+        ("arc", browser_cookie3.arc),
         ("chrome", browser_cookie3.chrome),
         ("edge", browser_cookie3.edge),
         ("firefox", browser_cookie3.firefox),
@@ -161,6 +162,7 @@ except ImportError:
     sys.exit(1)
 
 browsers = [
+    ("arc", browser_cookie3.arc),
     ("chrome", browser_cookie3.chrome),
     ("edge", browser_cookie3.edge),
     ("firefox", browser_cookie3.firefox),
@@ -279,7 +281,7 @@ def get_cookies() -> Dict[str, str]:
         raise RuntimeError(
             "No Twitter cookies found.\n"
             "Option 1: Set TWITTER_AUTH_TOKEN and TWITTER_CT0 environment variables\n"
-            "Option 2: Make sure you are logged into x.com in your browser (Chrome/Edge/Firefox/Brave)"
+            "Option 2: Make sure you are logged into x.com in your browser (Arc/Chrome/Edge/Firefox/Brave)"
         )
 
     # Verify only for explicit auth failures; transient endpoint issues are tolerated.
