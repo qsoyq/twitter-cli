@@ -106,9 +106,8 @@ twitter feed --yaml
 twitter feed --json | jq '.[0].text'
 ```
 
-**Tweet JSON fields:** `id`, `text`, `author` (`id`, `name`, `screenName`), `metrics` (`likes`, `retweets`, `replies`, `quotes`, `views`, `bookmarks`), `createdAt`, `media`, `urls`, `isRetweet`, `lang`
-
-**User JSON fields:** `id`, `name`, `screenName`, `bio`, `location`, `url`, `followers`, `following`, `tweets`, `likes`, `verified`, `createdAt`
+All machine-readable output uses the envelope documented in [SCHEMA.md](./SCHEMA.md).
+Tweet and user payloads now live under `.data`.
 
 ### Compact: `-c` flag (minimal tokens for LLM)
 
@@ -181,7 +180,7 @@ twitter post "My tweet text" 2>/dev/null
 ### Reply to someone's latest tweet
 
 ```bash
-TWEET_ID=$(twitter user-posts targetuser --max 1 --json | jq -r '.[0].id')
+TWEET_ID=$(twitter user-posts targetuser --max 1 --json | jq -r '.data[0].id')
 twitter reply "$TWEET_ID" "Nice post!"
 ```
 
@@ -198,14 +197,14 @@ twitter reply <second_tweet_id> "3/3: Final point"
 ### Quote-tweet with commentary
 
 ```bash
-TWEET_ID=$(twitter search "interesting topic" --max 1 --json | jq -r '.[0].id')
+TWEET_ID=$(twitter search "interesting topic" --max 1 --json | jq -r '.data[0].id')
 twitter quote "$TWEET_ID" "This is a great insight!"
 ```
 
 ### Like all search results
 
 ```bash
-twitter search "interesting topic" --max 5 --json | jq -r '.[].id' | while read id; do
+twitter search "interesting topic" --max 5 --json | jq -r '.data[].id' | while read id; do
   twitter like "$id"
 done
 ```
@@ -213,21 +212,21 @@ done
 ### Get user info then follow
 
 ```bash
-twitter user targethandle --json | jq '{screenName, followers, bio}'
+twitter user targethandle --json | jq '.data | {username, followers, bio}'
 twitter follow targethandle
 ```
 
 ### Find most popular tweets from a user
 
 ```bash
-twitter user-posts elonmusk --max 20 --json | jq 'sort_by(.metrics.likes) | reverse | .[:3] | .[] | {id, text: .text[:80], likes: .metrics.likes}'
+twitter user-posts elonmusk --max 20 --json | jq '.data | sort_by(.metrics.likes) | reverse | .[:3] | .[] | {id, text: .text[:80], likes: .metrics.likes}'
 ```
 
 ### Check follower relationship
 
 ```bash
-MY_NAME=$(twitter whoami --json | jq -r '.screenName')
-twitter followers "$MY_NAME" --max 200 --json | jq -r '.[].screenName' | grep -q "targetuser" && echo "Yes" || echo "No"
+MY_NAME=$(twitter whoami --json | jq -r '.data.user.username')
+twitter followers "$MY_NAME" --max 200 --json | jq -r '.data[].username' | grep -q "targetuser" && echo "Yes" || echo "No"
 ```
 
 ### Daily reading workflow
@@ -246,13 +245,13 @@ twitter bookmarks --max 20 -o bookmarks.json
 
 ```bash
 # Tweets with > 100 likes
-twitter search "AI safety" --max 20 --json | jq '[.[] | select(.metrics.likes > 100)]'
+twitter search "AI safety" --max 20 --json | jq '[.data[] | select(.metrics.likes > 100)]'
 
 # Extract just text and author
-twitter search "rust lang" --max 10 --json | jq '.[] | {author: .author.screenName, text: .text[:100]}'
+twitter search "rust lang" --max 10 --json | jq '.data[] | {author: .author.screenName, text: .text[:100]}'
 
 # Most engaged tweets
-twitter search "topic" --max 20 --json | jq 'sort_by(.metrics.likes) | reverse | .[:5] | .[].id'
+twitter search "topic" --max 20 --json | jq '.data | sort_by(.metrics.likes) | reverse | .[:5] | .[].id'
 ```
 
 ## Ranking Filter

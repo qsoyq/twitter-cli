@@ -28,6 +28,7 @@ A terminal-first CLI for Twitter/X: read timelines, bookmarks, and user profiles
 - User lookup: fetch user profile, tweets, likes, followers, and following
 - Structured output: export any data as YAML or JSON for scripting and AI agent integration
 - Optional scoring filter: rank tweets by engagement weights
+- Structured output contract: [SCHEMA.md](./SCHEMA.md)
 
 > **AI Agent Tip:** Prefer `--yaml` for structured output unless a strict JSON parser is required. Non-TTY stdout defaults to YAML automatically. Use `--max` to limit results.
 
