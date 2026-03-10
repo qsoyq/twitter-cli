@@ -32,7 +32,7 @@ A terminal-first CLI for Twitter/X: read timelines, bookmarks, and user profiles
 - Delete: remove your own tweets
 - Like / Unlike: manage tweet likes
 - Retweet / Unretweet: manage retweets
-- Bookmark: favorite/unfavorite
+- Bookmark: bookmark/unbookmark (`favorite/unfavorite` kept as compatibility aliases)
 
 **Auth & Anti-Detection:**
 - Cookie auth: use browser cookies or environment variables
@@ -83,8 +83,8 @@ twitter feed --json > tweets.json
 twitter feed --input tweets.json
 
 # Bookmarks
-twitter favorites
-twitter favorites --max 30 --json
+twitter bookmarks
+twitter bookmarks --max 30 --json
 
 # Search
 twitter search "Claude Code"
@@ -117,8 +117,8 @@ twitter like 1234567890
 twitter unlike 1234567890
 twitter retweet 1234567890
 twitter unretweet 1234567890
-twitter favorite 1234567890
-twitter unfavorite 1234567890
+twitter bookmark 1234567890
+twitter unbookmark 1234567890
 ```
 
 ### Authentication
@@ -126,7 +126,7 @@ twitter unfavorite 1234567890
 twitter-cli uses this auth priority:
 
 1. **Environment variables**: `TWITTER_AUTH_TOKEN` + `TWITTER_CT0`
-2. **Browser cookies** (recommended): auto-extract from Chrome/Edge/Firefox/Brave
+2. **Browser cookies** (recommended): auto-extract from Arc/Chrome/Edge/Firefox/Brave
 
 Browser extraction is recommended — it forwards ALL Twitter cookies (not just `auth_token` + `ct0`), making requests indistinguishable from real browser traffic.
 
@@ -174,6 +174,10 @@ rateLimit:
   maxCount: 200          # hard cap on fetched items
 ```
 
+Fetch behavior:
+
+- `fetch.count` is the default item count for read commands when `--max` is omitted
+
 Filter behavior:
 
 - Default behavior: no ranking filter unless `--filter` is passed
@@ -206,8 +210,9 @@ Mode behavior:
 ### Troubleshooting
 
 - `No Twitter cookies found`
-  - Ensure you are logged in to `x.com` in a supported browser.
+  - Ensure you are logged in to `x.com` in a supported browser (Arc/Chrome/Edge/Firefox/Brave).
   - Or set `TWITTER_AUTH_TOKEN` and `TWITTER_CT0` manually.
+  - Run with `-v` to see browser extraction diagnostics.
 
 - `Cookie expired or invalid (HTTP 401/403)`
   - Re-login to `x.com` and retry.
@@ -290,7 +295,7 @@ After installation, OpenClaw can call `twitter-cli` commands directly.
 - 删除：删除自己的推文
 - 点赞 / 取消点赞
 - 转推 / 取消转推
-- 收藏 / 取消收藏：favorite/unfavorite
+- 书签 / 取消书签：bookmark/unbookmark（保留 `favorite/unfavorite` 兼容别名）
 
 **认证与反风控:**
 - Cookie 认证：支持环境变量和浏览器自动提取
@@ -317,7 +322,7 @@ twitter feed -t following
 twitter feed --filter
 
 # 收藏
-twitter favorites
+twitter bookmarks
 
 # 搜索
 twitter search "Claude Code"
@@ -348,8 +353,8 @@ twitter like 1234567890
 twitter unlike 1234567890
 twitter retweet 1234567890
 twitter unretweet 1234567890
-twitter favorite 1234567890
-twitter unfavorite 1234567890
+twitter bookmark 1234567890
+twitter unbookmark 1234567890
 ```
 
 ### 认证说明
@@ -357,7 +362,7 @@ twitter unfavorite 1234567890
 认证优先级：
 
 1. **环境变量**：`TWITTER_AUTH_TOKEN` + `TWITTER_CT0`
-2. **浏览器提取**（推荐）：Chrome/Edge/Firefox/Brave 全量 Cookie 提取
+2. **浏览器提取**（推荐）：Arc/Chrome/Edge/Firefox/Brave 全量 Cookie 提取
 
 推荐使用浏览器提取方式，会转发所有 Twitter Cookie，让请求和真实浏览器完全一致。
 
@@ -374,6 +379,8 @@ export TWITTER_PROXY=socks5://127.0.0.1:1080
 使用代理可以降低 IP 维度的风控风险。
 
 ### 筛选算法
+
+未传 `--max` 时，所有读取命令默认使用 `config.yaml` 里的 `fetch.count`。
 
 只有在传入 `--filter` 时才会启用筛选评分；默认不筛选。
 
@@ -395,7 +402,8 @@ score = likes_w * likes
 
 ### 常见问题
 
-- 报错 `No Twitter cookies found`：请先登录 `x.com` 或手动设置环境变量。
+- 报错 `No Twitter cookies found`：请先登录 `x.com`，并确认浏览器为 Arc/Chrome/Edge/Firefox/Brave 之一，或手动设置环境变量。
+- 如需查看浏览器提取细节，可加 `-v` 打开诊断日志。
 - 报错 `Cookie expired or invalid`：Cookie 过期，重新登录后重试。
 - 报错 `Twitter API error 404`：通常是 queryId 轮换，重试即可。
 

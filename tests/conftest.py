@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -34,3 +36,13 @@ def tweet_factory():
         )
 
     return _make_tweet
+
+
+@pytest.fixture()
+def fixture_loader():
+    fixture_dir = Path(__file__).parent / "fixtures"
+
+    def _load(name: str) -> Any:
+        return json.loads((fixture_dir / name).read_text(encoding="utf-8"))
+
+    return _load

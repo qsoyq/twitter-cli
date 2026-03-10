@@ -25,7 +25,7 @@ uv tool install twitter-cli
 
 ## Authentication
 
-- Auto-extracts browser cookies from Chrome/Edge/Firefox/Brave.
+- Auto-extracts browser cookies from Arc/Chrome/Edge/Firefox/Brave.
 - Or set environment variables: `TWITTER_AUTH_TOKEN` + `TWITTER_CT0`.
 
 ## Command Reference
@@ -44,9 +44,9 @@ twitter feed --input tweets.json       # Read from local JSON file
 ### Bookmarks
 
 ```bash
-twitter favorites                      # List bookmarked tweets
-twitter favorites --max 30 --json
-twitter favorites --filter             # Apply ranking filter
+twitter bookmarks                      # List bookmarked tweets
+twitter bookmarks --max 30 --json
+twitter bookmarks --filter             # Apply ranking filter
 ```
 
 ### Search
@@ -94,8 +94,8 @@ twitter like 1234567890                              # Like
 twitter unlike 1234567890                            # Unlike
 twitter retweet 1234567890                           # Retweet
 twitter unretweet 1234567890                         # Unretweet
-twitter favorite 1234567890                          # Bookmark
-twitter unfavorite 1234567890                        # Unbookmark
+twitter bookmark 1234567890                          # Bookmark
+twitter unbookmark 1234567890                        # Unbookmark
 ```
 
 ## JSON / Scripting
@@ -115,7 +115,7 @@ Filtering is opt-in (disabled by default). Enable with `--filter`.
 
 ```bash
 twitter feed --filter
-twitter favorites --filter
+twitter bookmarks --filter
 ```
 
 The scoring formula:
@@ -144,12 +144,12 @@ twitter user elonmusk --json
 
 # Daily reading workflow
 twitter feed -t following --filter
-twitter favorites --filter
+twitter bookmarks --filter
 ```
 
 ## Error Handling
 
-- `No Twitter cookies found` — login to `x.com` in a supported browser, or set env vars.
+- `No Twitter cookies found` — login to `x.com` in Arc/Chrome/Edge/Firefox/Brave, or set env vars.
 - `Cookie expired or invalid (HTTP 401/403)` — re-login to `x.com` and retry.
 - `Twitter API error 404` — queryId rotation, retry the command (client has live fallback).
 

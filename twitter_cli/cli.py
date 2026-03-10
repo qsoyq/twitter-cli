@@ -3,7 +3,7 @@
 Read commands:
     twitter feed                      # home timeline (For You)
     twitter feed -t following         # following feed
-    twitter favorites                 # bookmarks
+    twitter bookmarks                 # bookmarks
     twitter search "query"            # search tweets
     twitter user elonmusk             # user profile
     twitter user-posts elonmusk       # user tweets
@@ -17,18 +17,19 @@ Write commands:
     twitter post "text"               # post a tweet
     twitter delete <id>               # delete a tweet
     twitter like/unlike <id>          # like/unlike
-    twitter favorite/unfavorite <id>  # bookmark/unbookmark
+    twitter bookmark/unbookmark <id>  # bookmark/unbookmark
     twitter retweet/unretweet <id>    # retweet/unretweet
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 import sys
 import time
+import urllib.parse
 from pathlib import Path
-
-import json
 
 import click
 from rich.console import Console
@@ -50,6 +51,7 @@ from .serialization import tweets_from_json, tweets_to_json, user_profile_to_dic
 
 console = Console(stderr=True)
 FEED_TYPES = ["for-you", "following"]
+SEARCH_PRODUCTS = ["Top", "Latest", "Photos", "Videos"]
 
 
 def _setup_logging(verbose):
@@ -90,6 +92,20 @@ def _get_client(config=None):
     )
 
 
+def _exit_with_error(exc):
+    # type: (RuntimeError) -> None
+    console.print("[red]❌ %s[/red]" % exc)
+    sys.exit(1)
+
+
+def _run_guarded(action):
+    # type: (Callable[[], Any]) -> Any
+    try:
+        return action()
+    except RuntimeError as exc:
+        _exit_with_error(exc)
+
+
 def _resolve_fetch_count(max_count, configured):
     # type: (Optional[int], int) -> int
     """Resolve fetch count with bounds checks."""
@@ -98,6 +114,35 @@ def _resolve_fetch_count(max_count, configured):
             raise RuntimeError("--max must be greater than 0")
         return max_count
     return max(configured, 1)
+
+
+def _resolve_configured_count(config, max_count):
+    # type: (dict, Optional[int]) -> int
+    return _resolve_fetch_count(max_count, config.get("fetch", {}).get("count", 50))
+
+
+def _normalize_tweet_id(value):
+    # type: (str) -> str
+    """Extract a numeric tweet ID from raw input or a full X/Twitter URL."""
+    raw = value.strip()
+    if not raw:
+        raise RuntimeError("Tweet ID or URL is required")
+
+    parsed = urllib.parse.urlparse(raw)
+    candidate = raw
+    if parsed.scheme and parsed.netloc:
+        path = parsed.path.rstrip("/")
+        match = re.search(r"/status/(\d+)$", path)
+        if not match:
+            raise RuntimeError("Invalid tweet URL: %s" % value)
+        candidate = match.group(1)
+    else:
+        candidate = raw.rstrip("/").split("/")[-1]
+        candidate = candidate.split("?", 1)[0].split("#", 1)[0]
+
+    if not candidate.isdigit():
+        raise RuntimeError("Invalid tweet ID: %s" % value)
+    return candidate
 
 
 def _apply_filter(tweets, do_filter, config):
@@ -128,15 +173,14 @@ def _fetch_and_display(fetch_fn, label, emoji, max_count, as_json, output_file, 
     if config is None:
         config = load_config()
     try:
-        fetch_count = _resolve_fetch_count(max_count, config.get("fetch", {}).get("count", 50))
+        fetch_count = _resolve_configured_count(config, max_count)
         console.print("%s Fetching %s (%d tweets)...\n" % (emoji, label, fetch_count))
         start = time.time()
         tweets = fetch_fn(fetch_count)
         elapsed = time.time() - start
         console.print("✅ Fetched %d %s in %.1fs\n" % (len(tweets), label, elapsed))
     except RuntimeError as exc:
-        console.print("[red]❌ %s[/red]" % exc)
-        sys.exit(1)
+        _exit_with_error(exc)
 
     filtered = _apply_filter(tweets, do_filter, config)
 
@@ -176,7 +220,7 @@ def feed(feed_type, max_count, as_json, input_file, output_file, do_filter):
             tweets = _load_tweets_from_json(input_file)
             console.print("   Loaded %d tweets" % len(tweets))
         else:
-            fetch_count = _resolve_fetch_count(max_count, config.get("fetch", {}).get("count", 50))
+            fetch_count = _resolve_configured_count(config, max_count)
             client = _get_client(config)
             label = "following feed" if feed_type == "following" else "home timeline"
             console.print("📡 Fetching %s (%d tweets)...\n" % (label, fetch_count))
@@ -188,8 +232,7 @@ def feed(feed_type, max_count, as_json, input_file, output_file, do_filter):
             elapsed = time.time() - start
             console.print("✅ Fetched %d tweets in %.1fs\n" % (len(tweets), elapsed))
     except RuntimeError as exc:
-        console.print("[red]❌ %s[/red]" % exc)
-        sys.exit(1)
+        _exit_with_error(exc)
 
     filtered = _apply_filter(tweets, do_filter, config)
 
@@ -216,11 +259,24 @@ def favorites(max_count, as_json, output_file, do_filter):
     # type: (Optional[int], bool, Optional[str], bool) -> None
     """Fetch bookmarked (favorite) tweets."""
     config = load_config()
-    client = _get_client(config)
-    _fetch_and_display(
-        lambda count: client.fetch_bookmarks(count),
-        "favorites", "🔖", max_count, as_json, output_file, do_filter, config,
-    )
+    def _run():
+        client = _get_client(config)
+        _fetch_and_display(
+            lambda count: client.fetch_bookmarks(count),
+            "bookmarks", "🔖", max_count, as_json, output_file, do_filter, config,
+        )
+    _run_guarded(_run)
+
+
+@cli.command(name="bookmarks")
+@click.option("--max", "-n", "max_count", type=int, default=None, help="Max number of tweets to fetch.")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+@click.option("--output", "-o", "output_file", type=str, default=None, help="Save tweets to JSON file.")
+@click.option("--filter", "do_filter", is_flag=True, help="Enable score-based filtering.")
+def bookmarks(max_count, as_json, output_file, do_filter):
+    # type: (Optional[int], bool, Optional[str], bool) -> None
+    """Fetch bookmarked tweets."""
+    favorites.callback(max_count=max_count, as_json=as_json, output_file=output_file, do_filter=do_filter)
 
 
 @cli.command()
@@ -236,8 +292,7 @@ def user(screen_name, as_json):
         console.print("👤 Fetching user @%s..." % screen_name)
         profile = client.fetch_user(screen_name)
     except RuntimeError as exc:
-        console.print("[red]❌ %s[/red]" % exc)
-        sys.exit(1)
+        _exit_with_error(exc)
 
     if as_json:
         click.echo(json.dumps(user_profile_to_dict(profile), ensure_ascii=False, indent=2))
@@ -248,7 +303,7 @@ def user(screen_name, as_json):
 
 @cli.command("user-posts")
 @click.argument("screen_name")
-@click.option("--max", "-n", "max_count", type=int, default=20, help="Max number of tweets to fetch.")
+@click.option("--max", "-n", "max_count", type=int, default=None, help="Max number of tweets to fetch.")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
 @click.option("--output", "-o", "output_file", type=str, default=None, help="Save tweets to JSON file.")
 def user_posts(screen_name, max_count, as_json, output_file):
@@ -256,20 +311,15 @@ def user_posts(screen_name, max_count, as_json, output_file):
     """List a user's tweets. SCREEN_NAME is the @handle (without @)."""
     screen_name = screen_name.lstrip("@")
     config = load_config()
-    client = _get_client(config)
-    console.print("👤 Fetching @%s's profile..." % screen_name)
-    try:
+    def _run():
+        client = _get_client(config)
+        console.print("👤 Fetching @%s's profile..." % screen_name)
         profile = client.fetch_user(screen_name)
-    except RuntimeError as exc:
-        console.print("[red]❌ %s[/red]" % exc)
-        sys.exit(1)
-    _fetch_and_display(
-        lambda count: client.fetch_user_tweets(profile.id, count),
-        "@%s tweets" % screen_name, "📝", max_count, as_json, output_file, False, config,
-    )
-
-
-SEARCH_PRODUCTS = ["Top", "Latest", "Photos", "Videos"]
+        _fetch_and_display(
+            lambda count: client.fetch_user_tweets(profile.id, count),
+            "@%s tweets" % screen_name, "📝", max_count, as_json, output_file, False, config,
+        )
+    _run_guarded(_run)
 
 
 @cli.command()
@@ -282,7 +332,7 @@ SEARCH_PRODUCTS = ["Top", "Latest", "Photos", "Videos"]
     default="Top",
     help="Search tab: Top, Latest, Photos, or Videos.",
 )
-@click.option("--max", "-n", "max_count", type=int, default=20, help="Max number of tweets to fetch.")
+@click.option("--max", "-n", "max_count", type=int, default=None, help="Max number of tweets to fetch.")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
 @click.option("--output", "-o", "output_file", type=str, default=None, help="Save tweets to JSON file.")
 @click.option("--filter", "do_filter", is_flag=True, help="Enable score-based filtering.")
@@ -290,16 +340,18 @@ def search(query, product, max_count, as_json, output_file, do_filter):
     # type: (str, str, int, bool, Optional[str], bool) -> None
     """Search tweets by QUERY string."""
     config = load_config()
-    client = _get_client(config)
-    _fetch_and_display(
-        lambda count: client.fetch_search(query, count, product),
-        "'%s' (%s)" % (query, product), "🔍", max_count, as_json, output_file, do_filter, config,
-    )
+    def _run():
+        client = _get_client(config)
+        _fetch_and_display(
+            lambda count: client.fetch_search(query, count, product),
+            "'%s' (%s)" % (query, product), "🔍", max_count, as_json, output_file, do_filter, config,
+        )
+    _run_guarded(_run)
 
 
 @cli.command()
 @click.argument("screen_name")
-@click.option("--max", "-n", "max_count", type=int, default=20, help="Max number of tweets to fetch.")
+@click.option("--max", "-n", "max_count", type=int, default=None, help="Max number of tweets to fetch.")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
 @click.option("--output", "-o", "output_file", type=str, default=None, help="Save tweets to JSON file.")
 @click.option("--filter", "do_filter", is_flag=True, help="Enable score-based filtering.")
@@ -308,39 +360,35 @@ def likes(screen_name, max_count, as_json, output_file, do_filter):
     """Show tweets liked by a user. SCREEN_NAME is the @handle (without @)."""
     screen_name = screen_name.lstrip("@")
     config = load_config()
-    client = _get_client(config)
-    console.print("👤 Fetching @%s's profile..." % screen_name)
-    try:
+    def _run():
+        client = _get_client(config)
+        console.print("👤 Fetching @%s's profile..." % screen_name)
         profile = client.fetch_user(screen_name)
-    except RuntimeError as exc:
-        console.print("[red]❌ %s[/red]" % exc)
-        sys.exit(1)
-    _fetch_and_display(
-        lambda count: client.fetch_user_likes(profile.id, count),
-        "@%s likes" % screen_name, "❤️", max_count, as_json, output_file, do_filter, config,
-    )
+        _fetch_and_display(
+            lambda count: client.fetch_user_likes(profile.id, count),
+            "@%s likes" % screen_name, "❤️", max_count, as_json, output_file, do_filter, config,
+        )
+    _run_guarded(_run)
 
 
 @cli.command()
 @click.argument("tweet_id")
-@click.option("--max", "-n", "max_count", type=int, default=20, help="Max replies to fetch.")
+@click.option("--max", "-n", "max_count", type=int, default=None, help="Max replies to fetch.")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
 def tweet(tweet_id, max_count, as_json):
     # type: (str, int, bool) -> None
     """View a tweet and its replies. TWEET_ID is the numeric tweet ID or full URL."""
-    # Extract tweet ID from URL if given
-    tweet_id = tweet_id.strip().rstrip("/").split("/")[-1]
+    tweet_id = _normalize_tweet_id(tweet_id)
     config = load_config()
     try:
         client = _get_client(config)
         console.print("🐦 Fetching tweet %s...\n" % tweet_id)
         start = time.time()
-        tweets = client.fetch_tweet_detail(tweet_id, max_count)
+        tweets = client.fetch_tweet_detail(tweet_id, _resolve_configured_count(config, max_count))
         elapsed = time.time() - start
         console.print("✅ Fetched %d tweets in %.1fs\n" % (len(tweets), elapsed))
     except RuntimeError as exc:
-        console.print("[red]❌ %s[/red]" % exc)
-        sys.exit(1)
+        _exit_with_error(exc)
 
     if as_json:
         click.echo(tweets_to_json(tweets))
@@ -356,23 +404,25 @@ def tweet(tweet_id, max_count, as_json):
 
 @cli.command(name="list")
 @click.argument("list_id")
-@click.option("--max", "-n", "max_count", type=int, default=20, help="Max tweets to fetch.")
+@click.option("--max", "-n", "max_count", type=int, default=None, help="Max tweets to fetch.")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
 @click.option("--filter", "do_filter", is_flag=True, help="Enable score-based filtering.")
 def list_timeline(list_id, max_count, as_json, do_filter):
     # type: (str, int, bool, bool) -> None
     """Fetch tweets from a Twitter List. LIST_ID is the numeric list ID."""
     config = load_config()
-    client = _get_client(config)
-    _fetch_and_display(
-        lambda count: client.fetch_list_timeline(list_id, count),
-        "list %s" % list_id, "📋", max_count, as_json, None, do_filter, config,
-    )
+    def _run():
+        client = _get_client(config)
+        _fetch_and_display(
+            lambda count: client.fetch_list_timeline(list_id, count),
+            "list %s" % list_id, "📋", max_count, as_json, None, do_filter, config,
+        )
+    _run_guarded(_run)
 
 
 @cli.command()
 @click.argument("screen_name")
-@click.option("--max", "-n", "max_count", type=int, default=20, help="Max users to fetch.")
+@click.option("--max", "-n", "max_count", type=int, default=None, help="Max users to fetch.")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
 def followers(screen_name, max_count, as_json):
     # type: (str, int, bool) -> None
@@ -383,14 +433,14 @@ def followers(screen_name, max_count, as_json):
         client = _get_client(config)
         console.print("👤 Fetching @%s's profile..." % screen_name)
         profile = client.fetch_user(screen_name)
-        console.print("👥 Fetching followers (%d)...\n" % max_count)
+        fetch_count = _resolve_configured_count(config, max_count)
+        console.print("👥 Fetching followers (%d)...\n" % fetch_count)
         start = time.time()
-        users = client.fetch_followers(profile.id, max_count)
+        users = client.fetch_followers(profile.id, fetch_count)
         elapsed = time.time() - start
         console.print("✅ Fetched %d followers in %.1fs\n" % (len(users), elapsed))
     except RuntimeError as exc:
-        console.print("[red]❌ %s[/red]" % exc)
-        sys.exit(1)
+        _exit_with_error(exc)
 
     if as_json:
         click.echo(users_to_json(users))
@@ -402,7 +452,7 @@ def followers(screen_name, max_count, as_json):
 
 @cli.command()
 @click.argument("screen_name")
-@click.option("--max", "-n", "max_count", type=int, default=20, help="Max users to fetch.")
+@click.option("--max", "-n", "max_count", type=int, default=None, help="Max users to fetch.")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
 def following(screen_name, max_count, as_json):
     # type: (str, int, bool) -> None
@@ -413,14 +463,14 @@ def following(screen_name, max_count, as_json):
         client = _get_client(config)
         console.print("👤 Fetching @%s's profile..." % screen_name)
         profile = client.fetch_user(screen_name)
-        console.print("👥 Fetching following (%d)...\n" % max_count)
+        fetch_count = _resolve_configured_count(config, max_count)
+        console.print("👥 Fetching following (%d)...\n" % fetch_count)
         start = time.time()
-        users = client.fetch_following(profile.id, max_count)
+        users = client.fetch_following(profile.id, fetch_count)
         elapsed = time.time() - start
         console.print("✅ Fetched %d following in %.1fs\n" % (len(users), elapsed))
     except RuntimeError as exc:
-        console.print("[red]❌ %s[/red]" % exc)
-        sys.exit(1)
+        _exit_with_error(exc)
 
     if as_json:
         click.echo(users_to_json(users))
@@ -442,8 +492,7 @@ def _write_action(emoji, action_desc, client_method, tweet_id):
         getattr(client, client_method)(tweet_id)
         console.print("[green]✅ Done.[/green]")
     except RuntimeError as exc:
-        console.print("[red]❌ %s[/red]" % exc)
-        sys.exit(1)
+        _exit_with_error(exc)
 
 
 @cli.command()
@@ -461,8 +510,7 @@ def post(text, reply_to):
         console.print("[green]✅ Tweet posted![/green]")
         console.print("🔗 https://x.com/i/status/%s" % tweet_id)
     except RuntimeError as exc:
-        console.print("[red]❌ %s[/red]" % exc)
-        sys.exit(1)
+        _exit_with_error(exc)
 
 
 @cli.command(name="delete")
@@ -516,9 +564,25 @@ def favorite(tweet_id):
 
 @cli.command()
 @click.argument("tweet_id")
+def bookmark(tweet_id):
+    # type: (str,) -> None
+    """Bookmark a tweet. TWEET_ID is the numeric tweet ID."""
+    _write_action("🔖", "Bookmarking tweet", "bookmark_tweet", tweet_id)
+
+
+@cli.command()
+@click.argument("tweet_id")
 def unfavorite(tweet_id):
     # type: (str,) -> None
     """Remove a tweet from bookmarks (unfavorite). TWEET_ID is the numeric tweet ID."""
+    _write_action("🔖", "Removing bookmark", "unbookmark_tweet", tweet_id)
+
+
+@cli.command()
+@click.argument("tweet_id")
+def unbookmark(tweet_id):
+    # type: (str,) -> None
+    """Remove a tweet from bookmarks. TWEET_ID is the numeric tweet ID."""
     _write_action("🔖", "Removing bookmark", "unbookmark_tweet", tweet_id)
 
 
