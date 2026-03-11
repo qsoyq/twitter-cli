@@ -30,6 +30,48 @@ def _is_twitter_domain(domain: str) -> bool:
     return domain in _TWITTER_DOMAINS or domain.endswith(".x.com") or domain.endswith(".twitter.com")
 
 
+# ---------------------------------------------------------------------------
+# Keychain / environment diagnostics
+# ---------------------------------------------------------------------------
+
+_KEYCHAIN_ERROR_KEYWORDS = (
+    "key for cookie decryption",
+    "safe storage",
+    "keychain",
+    "secretstorage",
+)
+
+
+def _diagnose_keychain_issues(diagnostics: List[str]) -> Optional[str]:
+    """Analyse extraction diagnostics for Keychain permission issues.
+
+    Returns a user-friendly hint string, or None.
+    """
+    lowered = " ".join(diagnostics).lower()
+    if not any(kw in lowered for kw in _KEYCHAIN_ERROR_KEYWORDS):
+        return None
+
+    is_ssh = bool(os.environ.get("SSH_CLIENT") or os.environ.get("SSH_TTY") or os.environ.get("SSH_CONNECTION"))
+
+    if sys.platform == "darwin":
+        if is_ssh:
+            return (
+                "macOS Keychain is locked (SSH session detected).\n"
+                "  Fix: security unlock-keychain ~/Library/Keychains/login.keychain-db\n"
+                "  Then retry the command."
+            )
+        return (
+            "macOS Keychain permission denied — your terminal is not authorized to read browser cookie encryption keys.\n"
+            "  Fix: Open Keychain Access → search for \"<Browser> Safe Storage\" → Access Control → add your Terminal app.\n"
+            "  Or click \"Always Allow\" when the Keychain authorization popup appears."
+        )
+    # Linux: gnome-keyring / SecretStorage issues
+    return (
+        "System keyring access failed — the cookie encryption key could not be retrieved.\n"
+        "  If running headless or via SSH, ensure your keyring daemon is unlocked."
+    )
+
+
 def load_from_env() -> Optional[Dict[str, str]]:
     """Load cookies from environment variables."""
     auth_token = os.environ.get("TWITTER_AUTH_TOKEN", "")
@@ -197,7 +239,7 @@ def _iter_chrome_cookie_files(browser_name: str) -> List[str]:
     return paths
 
 
-def _extract_in_process() -> Optional[Dict[str, str]]:
+def _extract_in_process() -> Tuple[Optional[Dict[str, str]], List[str]]:
     """Extract cookies in the main process (required on macOS for Keychain access).
 
     On macOS, Chrome encrypts cookies using a key stored in the system Keychain.
@@ -205,12 +247,14 @@ def _extract_in_process() -> Optional[Dict[str, str]]:
     browser_cookie3 must run in the main process to decrypt cookies.
 
     For Chromium-based browsers, iterates all profiles to find Twitter cookies.
+
+    Returns (cookies_dict | None, diagnostics_list).
     """
     try:
         import browser_cookie3
     except ImportError:
         logger.debug("browser_cookie3 not installed, skipping in-process extraction")
-        return None
+        return None, ["browser-cookie3 not installed"]
 
     browsers = [
         ("arc", browser_cookie3.arc),
@@ -219,7 +263,8 @@ def _extract_in_process() -> Optional[Dict[str, str]]:
         ("firefox", browser_cookie3.firefox),
         ("brave", browser_cookie3.brave),
     ]
-    attempts = []
+    attempts: List[str] = []
+    diagnostics: List[str] = []
 
     for name, fn in browsers:
         if name in _CHROMIUM_BASE_DIRS:
@@ -232,11 +277,12 @@ def _extract_in_process() -> Optional[Dict[str, str]]:
                 except Exception as e:
                     logger.debug("%s in-process extraction failed: %s", name, e)
                     attempts.append("%s=%s" % (name, type(e).__name__))
+                    diagnostics.append("%s: %s" % (name, e))
                     continue
                 cookies = _extract_cookies_from_jar(jar, source="%s(in-process)" % name)
                 if cookies:
                     logger.info("Found cookies in %s (in-process, default)", name)
-                    return cookies
+                    return cookies, diagnostics
                 attempts.append("%s=no-cookies" % name)
                 continue
 
@@ -247,11 +293,12 @@ def _extract_in_process() -> Optional[Dict[str, str]]:
                 except Exception as e:
                     logger.debug("%s[%s] in-process extraction failed: %s", name, profile_name, e)
                     attempts.append("%s[%s]=%s" % (name, profile_name, type(e).__name__))
+                    diagnostics.append("%s[%s]: %s" % (name, profile_name, e))
                     continue
                 cookies = _extract_cookies_from_jar(jar, source="%s[%s](in-process)" % (name, profile_name))
                 if cookies:
                     logger.info("Found cookies in %s profile '%s' (in-process)", name, profile_name)
-                    return cookies
+                    return cookies, diagnostics
                 attempts.append("%s[%s]=no-cookies" % (name, profile_name))
         else:
             # Non-Chromium (Firefox): use default behavior
@@ -260,20 +307,24 @@ def _extract_in_process() -> Optional[Dict[str, str]]:
             except Exception as e:
                 logger.debug("%s in-process extraction failed: %s", name, e)
                 attempts.append("%s=%s" % (name, type(e).__name__))
+                diagnostics.append("%s: %s" % (name, e))
                 continue
             cookies = _extract_cookies_from_jar(jar, source="%s(in-process)" % name)
             if cookies:
                 logger.info("Found cookies in %s (in-process)", name)
-                return cookies
+                return cookies, diagnostics
             attempts.append("%s=no-cookies" % name)
 
     if attempts:
         logger.debug("In-process extraction attempts: %s", ", ".join(attempts))
-    return None
+    return None, diagnostics
 
 
-def _extract_via_subprocess() -> Optional[Dict[str, str]]:
-    """Extract cookies via subprocess (fallback if in-process fails, e.g. SQLite lock)."""
+def _extract_via_subprocess() -> Tuple[Optional[Dict[str, str]], List[str]]:
+    """Extract cookies via subprocess (fallback if in-process fails, e.g. SQLite lock).
+
+    Returns (cookies_dict | None, diagnostics_list).
+    """
     extract_script = '''
 import glob, json, os, sys
 try:
@@ -351,7 +402,7 @@ for name, fn in browsers:
             try:
                 jar = fn()
             except Exception as exc:
-                attempts.append(f"{name}={type(exc).__name__}")
+                attempts.append(f"{name}={type(exc).__name__}: {exc}")
                 continue
             r = extract_from_jar(jar, name)
             if r:
@@ -364,7 +415,7 @@ for name, fn in browsers:
             try:
                 jar = fn(cookie_file=cf)
             except Exception as exc:
-                attempts.append(f"{name}[{pname}]={type(exc).__name__}")
+                attempts.append(f"{name}[{pname}]={type(exc).__name__}: {exc}")
                 continue
             r = extract_from_jar(jar, name, pname)
             if r:
@@ -375,7 +426,7 @@ for name, fn in browsers:
         try:
             jar = fn()
         except Exception as exc:
-            attempts.append(f"{name}={type(exc).__name__}")
+            attempts.append(f"{name}={type(exc).__name__}: {exc}")
             continue
         r = extract_from_jar(jar, name)
         if r:
@@ -389,6 +440,8 @@ print(json.dumps({
 }))
 sys.exit(1)
 '''
+
+    diagnostics: List[str] = []
 
     def _run_extract_command(
         cmd: list[str],
@@ -427,6 +480,7 @@ sys.exit(1)
             attempts = data.get("attempts") or []
             if attempts:
                 logger.debug("Subprocess extraction attempts (%s): %s", label, ", ".join(str(item) for item in attempts))
+                diagnostics.extend(str(item) for item in attempts)
             retryable = data.get("error") == "browser-cookie3 not installed"
             return None, retryable
 
@@ -446,7 +500,7 @@ sys.exit(1)
             )
 
         if data is None:
-            return None
+            return None, diagnostics
         logger.info("Found cookies in %s (subprocess)", data.get("browser", "unknown"))
 
         # Build full cookie string from all extracted cookies
@@ -456,30 +510,36 @@ sys.exit(1)
             cookie_str = "; ".join("%s=%s" % (k, v) for k, v in all_cookies.items())
             cookies["cookie_string"] = cookie_str
             logger.info("Extracted %d total cookies for full browser fingerprint", len(all_cookies))
-        return cookies
+        return cookies, diagnostics
     except KeyError as exc:
         logger.debug("Cookie extraction subprocess returned incomplete payload: %s", exc)
-        return None
+        return None, diagnostics
 
 
-def extract_from_browser() -> Optional[Dict[str, str]]:
+def extract_from_browser() -> Tuple[Optional[Dict[str, str]], List[str]]:
     """Auto-extract ALL Twitter cookies from local browser using browser-cookie3.
 
     Strategy:
     1. Try in-process first (required on macOS for Keychain access)
     2. Fall back to subprocess (handles SQLite lock when browser is running)
+
+    Returns (cookies_dict | None, diagnostics_list).
     """
+    all_diagnostics: List[str] = []
+
     # 1. In-process (works on macOS, may fail with SQLite lock)
-    cookies = _extract_in_process()
+    cookies, diag = _extract_in_process()
+    all_diagnostics.extend(diag)
     if cookies:
-        return cookies
+        return cookies, all_diagnostics
 
     # 2. Subprocess fallback (handles SQLite lock, but fails on macOS Keychain)
     logger.debug("In-process extraction failed, trying subprocess fallback")
-    cookies = _extract_via_subprocess()
+    cookies, diag = _extract_via_subprocess()
+    all_diagnostics.extend(diag)
     if not cookies:
         logger.warning("Twitter cookie extraction failed in both in-process and subprocess modes")
-    return cookies
+    return cookies, all_diagnostics
 
 
 def get_cookies() -> Dict[str, str]:
@@ -488,6 +548,7 @@ def get_cookies() -> Dict[str, str]:
     Raises RuntimeError if no cookies found.
     """
     cookies: Optional[Dict[str, str]] = None
+    diagnostics: List[str] = []
 
     # 1. Try environment variables
     cookies = load_from_env()
@@ -497,14 +558,22 @@ def get_cookies() -> Dict[str, str]:
     # 2. Try browser extraction (auto-detect)
     if not cookies:
         logger.debug("Attempting browser cookie extraction")
-        cookies = extract_from_browser()
+        cookies, diagnostics = extract_from_browser()
 
     if not cookies:
-        raise RuntimeError(
-            "No Twitter cookies found.\n"
-            "Option 1: Set TWITTER_AUTH_TOKEN and TWITTER_CT0 environment variables\n"
-            "Option 2: Make sure you are logged into x.com in your browser (Arc/Chrome/Edge/Firefox/Brave)"
-        )
+        lines = ["No Twitter cookies found."]
+        # Add actionable Keychain hint when relevant
+        hint = _diagnose_keychain_issues(diagnostics)
+        if hint:
+            lines.append("")
+            lines.append("Likely cause:")
+            lines.extend("  " + l for l in hint.splitlines())
+            lines.append("")
+        lines.append("Option 1: Set TWITTER_AUTH_TOKEN and TWITTER_CT0 environment variables")
+        lines.append("Option 2: Make sure you are logged into x.com in your browser (Arc/Chrome/Edge/Firefox/Brave)")
+        lines.append("")
+        lines.append("Run 'twitter doctor' for full diagnostics.")
+        raise RuntimeError("\n".join(lines))
 
     # Verify only for explicit auth failures; transient endpoint issues are tolerated.
     try:
@@ -512,7 +581,7 @@ def get_cookies() -> Dict[str, str]:
     except RuntimeError:
         # Auth failure — re-extract from browser and retry verification
         logger.info("Cookie verification failed, re-extracting from browser")
-        fresh_cookies = extract_from_browser()
+        fresh_cookies, _ = extract_from_browser()
         if fresh_cookies:
             # Verify fresh cookies — if this also fails, let it raise
             verify_cookies(fresh_cookies["auth_token"], fresh_cookies["ct0"], fresh_cookies.get("cookie_string"))

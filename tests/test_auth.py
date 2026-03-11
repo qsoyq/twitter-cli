@@ -30,8 +30,8 @@ def test_get_cookies_reextracts_after_verify_failure(monkeypatch) -> None:
     monkeypatch.setattr(auth, "load_from_env", lambda: None)
     extracted = iter(
         [
-            {"auth_token": "stale-token", "ct0": "stale-csrf", "cookie_string": "stale=1"},
-            {"auth_token": "fresh-token", "ct0": "fresh-csrf", "cookie_string": "fresh=1"},
+            ({"auth_token": "stale-token", "ct0": "stale-csrf", "cookie_string": "stale=1"}, []),
+            ({"auth_token": "fresh-token", "ct0": "fresh-csrf", "cookie_string": "fresh=1"}, []),
         ]
     )
     monkeypatch.setattr(auth, "extract_from_browser", lambda: next(extracted))
@@ -84,11 +84,11 @@ def test_extract_cookies_from_jar_logs_missing_required_cookies(caplog) -> None:
 
 
 def test_extract_from_browser_logs_warning_when_all_methods_fail(monkeypatch, caplog) -> None:
-    monkeypatch.setattr(auth, "_extract_in_process", lambda: None)
-    monkeypatch.setattr(auth, "_extract_via_subprocess", lambda: None)
+    monkeypatch.setattr(auth, "_extract_in_process", lambda: (None, []))
+    monkeypatch.setattr(auth, "_extract_via_subprocess", lambda: (None, []))
 
     with caplog.at_level("WARNING"):
-        cookies = auth.extract_from_browser()
+        cookies, diagnostics = auth.extract_from_browser()
 
     assert cookies is None
     assert "Twitter cookie extraction failed in both in-process and subprocess modes" in caplog.text
@@ -110,7 +110,7 @@ def test_extract_in_process_supports_arc(monkeypatch) -> None:
     )
     monkeypatch.setitem(sys.modules, "browser_cookie3", fake_module)
 
-    cookies = auth._extract_in_process()
+    cookies, diagnostics = auth._extract_in_process()
 
     assert cookies is not None
     assert cookies["auth_token"] == "token"
@@ -132,7 +132,7 @@ def test_extract_via_subprocess_script_includes_arc(monkeypatch) -> None:
 
     monkeypatch.setattr(auth.subprocess, "run", _run)
 
-    cookies = auth._extract_via_subprocess()
+    cookies, diagnostics = auth._extract_via_subprocess()
 
     assert cookies is None
     assert '("arc", browser_cookie3.arc)' in seen["script"]
@@ -154,7 +154,7 @@ def test_extract_via_subprocess_retries_uv_when_current_env_has_no_output(monkey
 
     monkeypatch.setattr(auth.subprocess, "run", _run)
 
-    cookies = auth._extract_via_subprocess()
+    cookies, diagnostics = auth._extract_via_subprocess()
 
     assert cookies == {"auth_token": "token", "ct0": "csrf"}
     assert len(calls) == 2
@@ -285,8 +285,85 @@ def test_extract_in_process_tries_multiple_profiles(monkeypatch, tmp_path) -> No
     )
     monkeypatch.setitem(sys.modules, "browser_cookie3", fake_module)
 
-    cookies = auth._extract_in_process()
+    cookies, diagnostics = auth._extract_in_process()
 
     assert cookies is not None
     assert cookies["auth_token"] == "tok123"
     assert cookies["ct0"] == "csrf456"
+
+
+def test_diagnose_keychain_issues_detects_decryption_error(monkeypatch) -> None:
+    """_diagnose_keychain_issues should detect Keychain-related error strings."""
+    monkeypatch.setattr("sys.platform", "darwin")
+    monkeypatch.delenv("SSH_CLIENT", raising=False)
+    monkeypatch.delenv("SSH_TTY", raising=False)
+    monkeypatch.delenv("SSH_CONNECTION", raising=False)
+
+    diagnostics = ["arc[Default]: Unable to get key for cookie decryption"]
+    hint = auth._diagnose_keychain_issues(diagnostics)
+
+    assert hint is not None
+    assert "Keychain" in hint
+
+
+def test_diagnose_keychain_issues_ssh_hint(monkeypatch) -> None:
+    """When SSH env vars are set, hint should suggest unlock-keychain."""
+    monkeypatch.setattr("sys.platform", "darwin")
+    monkeypatch.setenv("SSH_CLIENT", "1.2.3.4 54321 22")
+
+    diagnostics = ["arc: Unable to get key for cookie decryption"]
+    hint = auth._diagnose_keychain_issues(diagnostics)
+
+    assert hint is not None
+    assert "SSH session detected" in hint
+    assert "security unlock-keychain" in hint
+
+
+def test_diagnose_keychain_issues_returns_none_for_unrelated_errors() -> None:
+    """Should return None when diagnostics don't mention Keychain."""
+    diagnostics = ["chrome[Default]=no-cookies", "firefox: profile not found"]
+    hint = auth._diagnose_keychain_issues(diagnostics)
+
+    assert hint is None
+
+
+def test_get_cookies_includes_keychain_hint_in_error(monkeypatch) -> None:
+    """When extraction fails with Keychain errors, error msg should contain the hint."""
+    monkeypatch.setattr("sys.platform", "darwin")
+    monkeypatch.setenv("SSH_CLIENT", "1.2.3.4 54321 22")
+    monkeypatch.setattr(auth, "load_from_env", lambda: None)
+    monkeypatch.setattr(
+        auth,
+        "extract_from_browser",
+        lambda: (None, ["arc: Unable to get key for cookie decryption"]),
+    )
+
+    with pytest.raises(RuntimeError) as exc_info:
+        auth.get_cookies()
+
+    msg = str(exc_info.value)
+    assert "security unlock-keychain" in msg
+    assert "twitter doctor" in msg
+
+
+def test_extract_in_process_returns_diagnostics_on_failure(monkeypatch) -> None:
+    """_extract_in_process should return diagnostics containing error strings."""
+    from types import SimpleNamespace
+
+    class BrowserError(Exception):
+        pass
+
+    fake_module = SimpleNamespace(
+        arc=lambda: (_ for _ in ()).throw(BrowserError("Unable to get key for cookie decryption")),
+        chrome=lambda: [],
+        edge=lambda: (_ for _ in ()).throw(BrowserError("Edge not found")),
+        firefox=lambda: (_ for _ in ()).throw(BrowserError("Firefox not found")),
+        brave=lambda: (_ for _ in ()).throw(BrowserError("Brave not found")),
+    )
+    monkeypatch.setitem(sys.modules, "browser_cookie3", fake_module)
+
+    cookies, diagnostics = auth._extract_in_process()
+
+    assert cookies is None
+    assert any("cookie decryption" in d for d in diagnostics)
+

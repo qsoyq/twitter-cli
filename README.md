@@ -241,12 +241,22 @@ Mode behavior:
 - `Cookie expired or invalid (HTTP 401/403)`
   - Re-login to `x.com` and retry.
 
+- `Unable to get key for cookie decryption` (macOS Keychain)
+  - **SSH sessions**: Keychain is locked by default over SSH. Run:
+    ```bash
+    security unlock-keychain ~/Library/Keychains/login.keychain-db
+    ```
+  - **Local terminal**: Open **Keychain Access** → search for **"\<Browser\> Safe Storage"** → **Access Control** → add your Terminal app → **Save Changes**.
+  - Or click **"Always Allow"** when the Keychain authorization popup appears.
+
 - `Twitter API error 404`
   - This can happen when upstream GraphQL query IDs rotate.
   - Retry the command; the client attempts a live queryId fallback.
 
 - `Invalid tweet JSON file`
   - Regenerate input using `twitter feed --json > tweets.json`.
+
+**Diagnostics command**: Run `twitter doctor` to output a full diagnostic report (version, OS, browser detection, Keychain status, cookie extraction results). Paste this output into bug reports.
 
 Structured error codes commonly include `not_authenticated`, `not_found`, `invalid_input`, `rate_limited`, and `api_error`.
 
@@ -458,7 +468,17 @@ score = likes_w * likes
 - 报错 `No Twitter cookies found`：请先登录 `x.com`，并确认浏览器为 Arc/Chrome/Edge/Firefox/Brave 之一，或手动设置环境变量。
 - 如需查看浏览器提取细节，可加 `-v` 打开诊断日志。
 - 报错 `Cookie expired or invalid`：Cookie 过期，重新登录后重试。
+- 报错 `Unable to get key for cookie decryption`（macOS Keychain 问题）：
+  - **SSH 远程登录**：Keychain 默认锁定，需手动解锁：
+    ```bash
+    security unlock-keychain ~/Library/Keychains/login.keychain-db
+    ```
+  - **本地终端**：打开 **钥匙串访问** → 搜索 **"\<浏览器\> Safe Storage"** → **访问控制** → 添加你的终端 app → **保存更改**。
+  - 或在弹出 Keychain 授权时点击 **"始终允许"**。
 - 报错 `Twitter API error 404`：通常是 queryId 轮换，重试即可。
+
+**诊断命令**：运行 `twitter doctor` 可输出完整诊断报告（版本、OS、浏览器检测、Keychain 状态、cookie 提取结果），方便提交 bug report。
+
 - 结构化错误码通常会区分 `not_authenticated`、`not_found`、`invalid_input`、`rate_limited`、`api_error`。
 
 ### 使用建议（防封号）

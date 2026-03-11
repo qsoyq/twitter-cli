@@ -21,6 +21,31 @@ body:
         - Other
     validations:
       required: true
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Browser (for cookie extraction)
+      options:
+        - Arc
+        - Chrome
+        - Edge
+        - Firefox
+        - Brave
+        - Other / N/A (using env vars)
+    validations:
+      required: true
+  - type: dropdown
+    id: access_method
+    attributes:
+      label: Access Method
+      description: How are you accessing the machine where twitter-cli runs?
+      options:
+        - Local terminal
+        - SSH
+        - Docker / container
+        - Other
+    validations:
+      required: true
   - type: textarea
     id: description
     attributes:
@@ -41,6 +66,12 @@ body:
       label: Steps to reproduce
       description: "Commands or steps to reproduce the issue. Use `twitter -v <command>` for debug output."
       render: bash
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: "Paste the output of `twitter doctor` here. This helps us diagnose cookie and auth issues quickly."
+      render: text
   - type: textarea
     id: logs
     attributes:

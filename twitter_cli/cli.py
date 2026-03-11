@@ -28,6 +28,7 @@ Write commands:
 from __future__ import annotations
 
 import logging
+import os
 import re
 import sys
 import time
@@ -990,6 +991,138 @@ def unbookmark(tweet_id, as_json, as_yaml):
     # type: (str, bool, bool) -> None
     """Remove a tweet from bookmarks. TWEET_ID is the numeric tweet ID."""
     _write_action("🔖", "Removing bookmark", "unbookmark_tweet", tweet_id, as_json=as_json, as_yaml=as_yaml)
+
+
+@cli.command(name="doctor")
+@structured_output_options
+def doctor(as_json, as_yaml):
+    # type: (bool, bool) -> None
+    """Run diagnostics for cookie extraction and authentication.
+
+    Useful for troubleshooting auth issues and for pasting into bug reports.
+    """
+    import platform
+
+    from .auth import (
+        _diagnose_keychain_issues,
+        _extract_in_process,
+        _extract_via_subprocess,
+        extract_from_browser,
+        load_from_env,
+        verify_cookies,
+    )
+
+    info: Dict[str, Any] = {}
+    mode = _structured_mode(as_json=as_json, as_yaml=as_yaml)
+
+    # -- System info --
+    info["version"] = __version__
+    info["python"] = sys.version.split()[0]
+    info["platform"] = platform.platform()
+    info["os"] = sys.platform
+
+    # -- Environment --
+    is_ssh = bool(
+        os.environ.get("SSH_CLIENT")
+        or os.environ.get("SSH_TTY")
+        or os.environ.get("SSH_CONNECTION")
+    )
+    info["ssh_session"] = is_ssh
+    info["env_auth_token_set"] = bool(os.environ.get("TWITTER_AUTH_TOKEN"))
+    info["env_ct0_set"] = bool(os.environ.get("TWITTER_CT0"))
+    info["chrome_profile_override"] = os.environ.get("TWITTER_CHROME_PROFILE", "")
+
+    # -- Cookie extraction --
+    env_cookies = load_from_env()
+    info["env_cookies"] = "found" if env_cookies else "not set"
+
+    # In-process extraction
+    in_proc_cookies, in_proc_diag = _extract_in_process()
+    info["in_process"] = {
+        "status": "ok" if in_proc_cookies else "failed",
+        "diagnostics": in_proc_diag,
+    }
+
+    # Subprocess extraction
+    sub_cookies, sub_diag = _extract_via_subprocess()
+    info["subprocess"] = {
+        "status": "ok" if sub_cookies else "failed",
+        "diagnostics": sub_diag,
+    }
+
+    # Combined diagnostics
+    all_diag = in_proc_diag + sub_diag
+    cookies = in_proc_cookies or sub_cookies or env_cookies
+
+    # Keychain hint
+    hint = _diagnose_keychain_issues(all_diag)
+    if hint:
+        info["keychain_hint"] = hint
+
+    # Verification
+    if cookies:
+        try:
+            result = verify_cookies(
+                cookies["auth_token"],
+                cookies["ct0"],
+                cookies.get("cookie_string"),
+            )
+            info["verification"] = "ok"
+            info["screen_name"] = result.get("screen_name", "")
+        except RuntimeError as exc:
+            info["verification"] = "failed: %s" % exc
+    else:
+        info["verification"] = "skipped (no cookies)"
+
+    # -- Output --
+    if _emit_mode_payload(info, mode):
+        return
+
+    console.print("\n🩺 [bold]twitter-cli doctor[/bold]\n")
+    console.print("  Version:      %s" % info["version"])
+    console.print("  Python:       %s" % info["python"])
+    console.print("  Platform:     %s" % info["platform"])
+    console.print("  SSH session:  %s" % ("yes ⚠️" if is_ssh else "no"))
+    console.print()
+
+    console.print("[bold]Environment:[/bold]")
+    console.print("  TWITTER_AUTH_TOKEN: %s" % ("set ✅" if info["env_auth_token_set"] else "not set"))
+    console.print("  TWITTER_CT0:        %s" % ("set ✅" if info["env_ct0_set"] else "not set"))
+    if info["chrome_profile_override"]:
+        console.print("  TWITTER_CHROME_PROFILE: %s" % info["chrome_profile_override"])
+    console.print()
+
+    console.print("[bold]Cookie Extraction:[/bold]")
+    in_status = info["in_process"]["status"]
+    console.print(
+        "  In-process:   %s" % ("[green]ok ✅[/green]" if in_status == "ok" else "[red]failed ❌[/red]")
+    )
+    for d in info["in_process"]["diagnostics"]:
+        console.print("    [dim]• %s[/dim]" % d)
+
+    sub_status = info["subprocess"]["status"]
+    console.print(
+        "  Subprocess:   %s" % ("[green]ok ✅[/green]" if sub_status == "ok" else "[red]failed ❌[/red]")
+    )
+    for d in info["subprocess"]["diagnostics"]:
+        console.print("    [dim]• %s[/dim]" % d)
+    console.print()
+
+    if hint:
+        console.print("[yellow]💡 Hint:[/yellow]")
+        for line in hint.splitlines():
+            console.print("  [yellow]%s[/yellow]" % line)
+        console.print()
+
+    v = info["verification"]
+    if v == "ok":
+        screen = info.get("screen_name", "")
+        console.print("[green]✅ Authentication: OK[/green]%s" % (" (@%s)" % screen if screen else ""))
+    elif v.startswith("failed"):
+        console.print("[red]❌ Authentication: %s[/red]" % v)
+    else:
+        console.print("[yellow]⚠️  Authentication: %s[/yellow]" % v)
+    console.print()
 
 
 if __name__ == "__main__":
